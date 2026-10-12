@@ -2,3 +2,5 @@
 Flask
 gunicorn
 requests
+Flask-Limiter
+Flask-Cors
