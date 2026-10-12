@@ -56,3 +56,46 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+SITE_ORIGIN = os.environ["SITE_ORIGIN"]
+
+CORS(app, resources={
+    r"/send-fixed": {"origins": [SITE_ORIGIN]}
+})
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[]
+)
+
+@app.post("/send-fixed")
+@limiter.limit("5 per hour")
+def send_fixed_message():
+    origin = request.headers.get("Origin", "")
+
+    if origin != SITE_ORIGIN:
+        return jsonify({"error": "Forbidden"}), 403
+
+    message = "مرحبًا! تم إرسال الرسالة من الموقع بنجاح."
+
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": CHAT_ID, "text": message},
+            timeout=15
+        )
+
+        if not response.ok or not response.json().get("ok"):
+            return jsonify({"error": "Telegram delivery failed"}), 502
+
+    except (requests.RequestException, ValueError):
+        return jsonify({"error": "Telegram service unavailable"}), 502
+
+    return jsonify({"success": True})
+
