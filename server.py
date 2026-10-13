@@ -1,6 +1,7 @@
 import os
 import hmac
 import requests
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -13,18 +14,18 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 API_KEY = os.environ["SITE_API_KEY"]
 SITE_ORIGIN = os.environ["SITE_ORIGIN"].rstrip("/")
 
-# Allow requests from your website
+# Allow browser requests from the website's exact origin.
 CORS(
     app,
     resources={r"/*": {"origins": [SITE_ORIGIN]}},
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key"]
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=[]
+    default_limits=[],
 )
 
 
@@ -36,6 +37,7 @@ def health():
 @app.route("/send-fixed", methods=["POST", "OPTIONS"])
 @limiter.limit("5 per hour")
 def send_fixed_message():
+    # Flask-CORS adds the appropriate CORS headers to this preflight response.
     if request.method == "OPTIONS":
         return "", 204
 
@@ -43,18 +45,32 @@ def send_fixed_message():
     if origin != SITE_ORIGIN:
         return jsonify({"error": "Origin not allowed"}), 403
 
-    message = "مرحبًا! تم إرسال الرسالة من الموقع بنجاح."
+    data = request.get_json(silent=True) or {}
+    page_url = data.get("page_url", "")
+
+    if not isinstance(page_url, str) or not page_url or len(page_url) > 2000:
+        return jsonify({"error": "Invalid page URL"}), 400
+
+    page = urlparse(page_url)
+    site = urlparse(SITE_ORIGIN)
+    if page.scheme != site.scheme or page.netloc != site.netloc:
+        return jsonify({"error": "Invalid page URL"}), 400
+
+    message = (
+        "📩 تم إرسال نموذج من موقع Pearly Kidz\n"
+        f"🌐 الصفحة: {page_url}"
+    )
 
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={"chat_id": CHAT_ID, "text": message},
-            timeout=15
+            timeout=15,
         )
         result = response.json()
 
         if not response.ok or not result.get("ok"):
-            app.logger.error("Telegram delivery failed")
+            app.logger.error("Telegram API rejected the fixed message")
             return jsonify({"error": "Telegram delivery failed"}), 502
 
         return jsonify({"success": True})
@@ -84,12 +100,12 @@ def send_message():
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={"chat_id": CHAT_ID, "text": message},
-            timeout=15
+            timeout=15,
         )
         result = response.json()
 
         if not response.ok or not result.get("ok"):
-            app.logger.error("Telegram delivery failed")
+            app.logger.error("Telegram API rejected the message")
             return jsonify({"error": "Telegram delivery failed"}), 502
 
         return jsonify({"success": True})
@@ -97,3 +113,7 @@ def send_message():
     except (requests.RequestException, ValueError):
         app.logger.exception("Telegram request failed")
         return jsonify({"error": "Telegram service unavailable"}), 502
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
