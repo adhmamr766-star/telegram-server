@@ -1,3 +1,4 @@
+
 import os
 import hmac
 import requests
@@ -14,7 +15,6 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 API_KEY = os.environ["SITE_API_KEY"]
 SITE_ORIGIN = os.environ["SITE_ORIGIN"].rstrip("/")
 
-# Allow browser requests from the website's exact origin.
 CORS(
     app,
     resources={r"/*": {"origins": [SITE_ORIGIN]}},
@@ -37,7 +37,6 @@ def health():
 @app.route("/send-fixed", methods=["POST", "OPTIONS"])
 @limiter.limit("5 per hour")
 def send_fixed_message():
-    # Flask-CORS adds the appropriate CORS headers to this preflight response.
     if request.method == "OPTIONS":
         return "", 204
 
@@ -51,23 +50,18 @@ def send_fixed_message():
     if not isinstance(page_url, str) or not page_url or len(page_url) > 2000:
         return jsonify({"error": "Invalid page URL"}), 400
 
-  
-page = urlparse(page_url)
-site = urlparse(SITE_ORIGIN)
+    page = urlparse(page_url)
+    site = urlparse(SITE_ORIGIN)
 
-if page.scheme not in ("http", "https") or not page.netloc:
-    return jsonify({
-        "error": "Invalid page URL",
-        "received_page_url": page_url
-    }), 400
+    if page.scheme not in ("http", "https") or not page.netloc:
+        return jsonify({"error": "Invalid page URL"}), 400
 
-if page.netloc.lower() != site.netloc.lower():
-    return jsonify({
-        "error": "Page domain does not match SITE_ORIGIN",
-        "received_host": page.netloc,
-        "expected_host": site.netloc
-    }), 400
-
+    if page.netloc.lower() != site.netloc.lower():
+        return jsonify({
+            "error": "Page domain does not match SITE_ORIGIN",
+            "received_host": page.netloc,
+            "expected_host": site.netloc
+        }), 400
 
     message = (
         "📩 تم إرسال نموذج من موقع Pearly Kidz\n"
@@ -83,7 +77,10 @@ if page.netloc.lower() != site.netloc.lower():
         result = response.json()
 
         if not response.ok or not result.get("ok"):
-            app.logger.error("Telegram API rejected the fixed message")
+            app.logger.error(
+                "Telegram API rejected the fixed message: %s",
+                result.get("description", "Unknown error")
+            )
             return jsonify({"error": "Telegram delivery failed"}), 502
 
         return jsonify({"success": True})
@@ -118,7 +115,10 @@ def send_message():
         result = response.json()
 
         if not response.ok or not result.get("ok"):
-            app.logger.error("Telegram API rejected the message")
+            app.logger.error(
+                "Telegram API rejected the message: %s",
+                result.get("description", "Unknown error")
+            )
             return jsonify({"error": "Telegram delivery failed"}), 502
 
         return jsonify({"success": True})
@@ -129,4 +129,7 @@ def send_message():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080))
+    )
