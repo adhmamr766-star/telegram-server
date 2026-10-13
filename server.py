@@ -51,10 +51,23 @@ def send_fixed_message():
     if not isinstance(page_url, str) or not page_url or len(page_url) > 2000:
         return jsonify({"error": "Invalid page URL"}), 400
 
-    page = urlparse(page_url)
-    site = urlparse(SITE_ORIGIN)
-    if page.scheme != site.scheme or page.netloc != site.netloc:
-        return jsonify({"error": "Invalid page URL"}), 400
+  
+page = urlparse(page_url)
+site = urlparse(SITE_ORIGIN)
+
+if page.scheme not in ("http", "https") or not page.netloc:
+    return jsonify({
+        "error": "Invalid page URL",
+        "received_page_url": page_url
+    }), 400
+
+if page.netloc.lower() != site.netloc.lower():
+    return jsonify({
+        "error": "Page domain does not match SITE_ORIGIN",
+        "received_host": page.netloc,
+        "expected_host": site.netloc
+    }), 400
+
 
     message = (
         "📩 تم إرسال نموذج من موقع Pearly Kidz\n"
