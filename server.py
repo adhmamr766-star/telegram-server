@@ -45,7 +45,81 @@ def send_telegram(text):
     return True
 
 
+
 @app.route("/send-order", methods=["POST", "OPTIONS"])
+@limiter.limit("10 per hour")
+def send_order():
+    # السماح بطلب الفحص المسبق الذي يرسله المتصفح
+    if request.method == "OPTIONS":
+        return "", 204
+
+    origin = request.headers.get("Origin", "").rstrip("/")
+    if origin != SITE_ORIGIN:
+        return jsonify({"error": "Origin not allowed"}), 403
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    page_url = data.get("page_url", "")
+    if not isinstance(page_url, str) or not page_url:
+        return jsonify({"error": "Invalid page URL"}), 400
+
+    page = urlparse(page_url)
+    site = urlparse(SITE_ORIGIN)
+
+    if page.scheme not in ("http", "https") or page.netloc.lower() != site.netloc.lower():
+        return jsonify({"error": "Page domain does not match SITE_ORIGIN"}), 400
+
+    customer = data.get("customer", {})
+    if not isinstance(customer, dict):
+        customer = {}
+
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        items = []
+
+    lines = [
+        "🛍️ طلب جديد من Pearly Kidz",
+        f"🌐 الصفحة: {page_url}",
+        f"👤 الاسم: {str(customer.get('name', 'غير مذكور'))[:120]}",
+        f"📞 الهاتف: {str(customer.get('phone', 'غير مذكور'))[:60]}",
+        f"📍 الإمارة: {str(customer.get('emirate', 'غير مذكور'))[:100]}",
+        f"🏠 العنوان: {str(customer.get('address', 'غير مذكور'))[:500]}",
+        "",
+        "📦 المنتجات:"
+    ]
+
+    for i, item in enumerate(items[:30], 1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", item.get("name", "منتج")))[:160]
+        size = str(item.get("size", "غير محدد"))[:50]
+        try:
+            quantity = max(1, min(99, int(item.get("quantity", 1))))
+        except (TypeError, ValueError):
+            quantity = 1
+        lines.append(f"{i}. {title} | المقاس: {size} | الكمية: {quantity}")
+
+    subtotal = str(data.get("subtotal", "غير محدد"))[:40]
+    currency = str(data.get("currency", ""))[:12]
+    payment_method = str(data.get("payment_method", "غير محددة"))[:60]
+
+    lines.extend([
+        "",
+        f"💰 الإجمالي: {subtotal} {currency}",
+        f"💳 طريقة الدفع المختارة: {payment_method}",
+        "ℹ️ هذا إشعار بطلب، وليس تأكيدًا على نجاح الدفع."
+    ])
+
+    try:
+        if not send_telegram("\n".join(lines)[:3900]):
+            return jsonify({"error": "Telegram delivery failed"}), 502
+        return jsonify({"success": True})
+    except (requests.RequestException, ValueError):
+        app.logger.exception("Telegram request failed")
+        return jsonify({"error": "Telegram service unavailable"}), 502
+
 @limiter.limit("10 per hour")
 def send_order():
     if request.method == "OPTIONS":
